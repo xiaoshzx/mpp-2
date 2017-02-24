@@ -68,7 +68,9 @@ static int drm_ioctl(int fd, int req, void *arg)
 static void* drm_mmap(int fd, size_t len, int prot, int flags, loff_t offset)
 {
     static unsigned long pagesize_mask = 0;
+#if !defined(__gnu_linux__)
     func_mmap64 fp_mmap64 = mpp_rt_get_mmap64();
+#endif
 
     if (fd < 0)
         return NULL;
@@ -76,16 +78,16 @@ static void* drm_mmap(int fd, size_t len, int prot, int flags, loff_t offset)
     if (!pagesize_mask)
         pagesize_mask = sysconf(_SC_PAGESIZE) - 1;
 
-    len = (len + pagesize_mask) & ~pagesize_mask;
+    offset = (offset + pagesize_mask) & ~pagesize_mask;
 
-    if (offset & 4095) {
-        return NULL;
-    }
-
+#if !defined(__gnu_linux__)
     if (fp_mmap64)
         return fp_mmap64(NULL, len, prot, flags, fd, offset);
 
     return NULL;
+#else
+    return mmap(NULL, len, prot, flags, fd, offset);
+#endif
 }
 
 static int drm_handle_to_fd(int fd, RK_U32 handle, int *map_fd, RK_U32 flags)
@@ -319,9 +321,21 @@ static MPP_RET os_allocator_drm_import(void *ctx, MppBufferInfo *data)
 
 static MPP_RET os_allocator_drm_release(void *ctx, MppBufferInfo *data)
 {
-    (void)ctx;
-    munmap(data->ptr, data->size);
-    close(data->fd);
+    allocator_ctx_drm *p = NULL;
+
+    if (NULL == ctx) {
+        drm_dbg(DRM_FUNCTION, "invalid ctx");
+        return MPP_ERR_NULL_PTR;
+    }
+    p = (allocator_ctx_drm *)ctx;
+
+    if (data->ptr) {
+        munmap(data->ptr, data->size);
+        data->ptr = NULL;
+    }
+
+    drm_free(p->drm_device, (RK_U32)((intptr_t)data->hnd));
+
     return MPP_OK;
 }
 
@@ -330,14 +344,20 @@ static MPP_RET os_allocator_drm_free(void *ctx, MppBufferInfo *data)
     allocator_ctx_drm *p = NULL;
 
     if (NULL == ctx) {
-        mpp_err("os_allocator_close Android do not accept NULL input\n");
+        drm_dbg(DRM_FUNCTION, "invalid ctx");
         return MPP_ERR_NULL_PTR;
     }
-
     p = (allocator_ctx_drm *)ctx;
-    munmap(data->ptr, data->size);
-    close(data->fd);
+
+    if (data->ptr) {
+        munmap(data->ptr, data->size);
+        data->ptr = NULL;
+    }
+
     drm_free(p->drm_device, (RK_U32)((intptr_t)data->hnd));
+    /* Not necessary here */
+    close(data->fd);
+
     return MPP_OK;
 }
 
