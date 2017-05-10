@@ -386,6 +386,7 @@ static MPP_RET allocator_ion_import(void *ctx, MppBufferInfo *data)
     }
 
     data->hnd = (void *)fd_data.handle;
+    ion_map_fd(p->ion_device, (ion_user_handle_t) data->hnd, &data->fd);
     data->ptr = NULL;
 RET:
     ion_dbg_func("leave: ret %d handle %d\n", ret, data->hnd);
